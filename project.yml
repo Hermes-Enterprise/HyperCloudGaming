@@ -2,7 +2,7 @@ name: HyperCloudGaming
 options:
   bundleIdPrefix: com.hermesenterprise
   deploymentTarget:
-    iOS: "15.0"
+    iOS: "16.0"
 targets:
   HyperCloudGaming:
     type: application

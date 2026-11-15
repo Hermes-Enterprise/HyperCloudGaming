@@ -33,15 +33,18 @@ class GameControllerBridge: NSObject, ObservableObject, WKScriptMessageHandler {
         mouse.mouseInput?.leftButton.pressedChangedHandler = { [weak self] _, _, pressed in
             self?.wsServer.sendMouseButton(button: 0, pressed: pressed)
         }
-        mouse.mouseInput?.rightButton.pressedChangedHandler = { [weak self] _, _, pressed in
+        mouse.mouseInput?.rightButton?.pressedChangedHandler = { [weak self] _, _, pressed in
             self?.wsServer.sendMouseButton(button: 1, pressed: pressed)
+        }
+        mouse.mouseInput?.middleButton?.pressedChangedHandler = { [weak self] _, _, pressed in
+            self?.wsServer.sendMouseButton(button: 2, pressed: pressed)
         }
     }
 
     private func setupKeyboard(_ keyboard: GCKeyboard) {
         self.keyboard = keyboard
-        keyboard.keyboardInput?.keyChangedHandler = { [weak self] _, key, pressed in
-            self?.wsServer.sendKey(code: key.keyCode.rawValue, pressed: pressed)
+        keyboard.keyboardInput?.keyChangedHandler = { [weak self] _, _, keyCode, pressed in
+            self?.wsServer.sendKey(code: Int(keyCode.rawValue), pressed: pressed)
         }
     }
 
