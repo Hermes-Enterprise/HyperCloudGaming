@@ -88,7 +88,9 @@ private final class ScriptMessageProxy: NSObject, WKScriptMessageHandler {
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
         guard let body = message.body as? [String: Any] else { return }
         if let diag = body["diagnostic"] as? String {
-            DispatchQueue.main.async { owner?.diagnosticMessage = diag }
+            DispatchQueue.main.async {
+                self.owner?.diagnosticMessage = diag
+            }
         }
         // pointer-lock / keyboard messages can be forwarded to your bridge later.
     }
