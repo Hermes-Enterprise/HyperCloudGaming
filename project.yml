@@ -32,7 +32,3 @@ targets:
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
           NSAllowsLocalNetworking: true
-        WKAppBoundDomains:
-          - xbox.com
-          - xboxlive.com
-          - microsoft.com
