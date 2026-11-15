@@ -1,33 +1,22 @@
 (function() {
     'use strict';
 
-    // ---- 1. Desktop UA + standalone spoof ----
-    const fakeUAData = {
-        brands: [{ brand: "Microsoft Edge", version: "999" }, { brand: "Chromium", version: "999" }, { brand: "Not=A?Brand", version: "24" }],
-        mobile: false, platform: "Windows"
+    // ---- Minimal desktop UA spoof ----
+    // Only override what's needed to hide the "Add to Home Screen" prompt.
+    // Do NOT touch maxTouchPoints, userAgentData, or matchMedia —
+    // those break touch handling and event wiring on the page.
+    const spoof = (obj, key, val) => {
+        try { Object.defineProperty(obj, key, { value: val, configurable: true }); } catch (e) {}
     };
 
-    const spoof = (obj, key, val) => { try { Object.defineProperty(obj, key, { value: val, configurable: true }); } catch (e) {} };
-
-    spoof(navigator, "userAgent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/999.0.0.0 Safari/537.36 Edg/999.0.0.0");
-    spoof(navigator, "appVersion", "5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/999.0.0.0 Safari/537.36 Edg/999.0.0.0");
-    spoof(navigator, "platform", "Win32");
-    spoof(navigator, "appName", "Netscape");
-    spoof(navigator, "appCodeName", "Mozilla");
-    spoof(navigator, "product", "Gecko");
-    spoof(navigator, "vendor", "Google Inc.");
-    spoof(navigator, "vendorSub", "");
-    spoof(navigator, "maxTouchPoints", undefined);
-    spoof(navigator, "userAgentData", fakeUAData);
+    spoof(navigator, "userAgent",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15");
+    spoof(navigator, "appVersion",
+        "5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15");
+    spoof(navigator, "platform", "MacIntel");
     spoof(navigator, "standalone", false);
 
-    const origMatchMedia = window.matchMedia;
-    window.matchMedia = function(q) {
-        if (q.includes('standalone')) return { matches: false, addListener: () => {}, removeListener: () => {} };
-        return origMatchMedia.call(window, q);
-    };
-
-    // ---- 2. Diagnostic ----
+    // ---- Diagnostic ----
     function sendDiag(msg) {
         try { window.webkit.messageHandlers.pointerLock.postMessage({ diagnostic: msg }); } catch (e) {}
         try {
@@ -35,7 +24,10 @@
             if (!el) {
                 el = document.createElement('div');
                 el.id = '__hcg_diag';
-                el.style.cssText = 'position:fixed!important;top:0!important;left:0!important;z-index:2147483647!important;background:rgba(200,0,0,0.85)!important;color:white!important;padding:4px 6px!important;font-size:11px!important;font-family:monospace!important;max-width:100vw!important;overflow:hidden!important;pointer-events:none!important;';
+                el.style.cssText = 'position:fixed!important;top:0!important;left:0!important;' +
+                    'z-index:2147483647!important;background:rgba(200,0,0,0.85)!important;color:white!important;' +
+                    'padding:4px 6px!important;font-size:11px!important;font-family:monospace!important;' +
+                    'max-width:100vw!important;overflow:hidden!important;pointer-events:none!important;';
                 (document.documentElement || document.body).appendChild(el);
             }
             el.textContent = msg;
@@ -43,35 +35,42 @@
     }
     sendDiag('shim exec@' + location.href);
 
-    // ---- 3. mediaDevices polyfill ----
+    // ---- mediaDevices polyfill ----
     if (!navigator.mediaDevices) navigator.mediaDevices = {};
     if (!navigator.mediaDevices.getUserMedia) {
         navigator.mediaDevices.getUserMedia = () => Promise.reject(new Error('getUserMedia not supported'));
     }
 
-    // ---- 4. Pointer lock override ----
-    const prevRequest = Element.prototype.requestPointerLock;
-    Element.prototype.requestPointerLock = function() {
+    // ---- Pointer lock override ----
+    const wrapRequest = (prev) => function() {
         try { window.webkit.messageHandlers.pointerLock.postMessage({ locked: true }); } catch (e) {}
-        if (typeof prevRequest === 'function') return prevRequest.apply(this, arguments);
+        if (typeof prev === 'function') return prev.apply(this, arguments);
     };
-    const prevExit = document.exitPointerLock;
-    document.exitPointerLock = function() {
-        try { window.webkit.messageHandlers.pointerLock.postMessage({ locked: false }); } catch (e) {}
-        if (typeof prevExit === 'function') return prevExit.apply(this, arguments);
-    };
+    Element.prototype.requestPointerLock = wrapRequest(Element.prototype.requestPointerLock);
 
-    // ---- 5. Reload fallback ----
+    const wrapExit = (prev) => function() {
+        try { window.webkit.messageHandlers.pointerLock.postMessage({ locked: false }); } catch (e) {}
+        if (typeof prev === 'function') return prev.apply(this, arguments);
+    };
+    document.exitPointerLock = wrapExit(document.exitPointerLock);
+
+    // ---- Reload fallback if BX hasn't loaded ----
+    // Checks every 2s. Triggers one reload on any xbox.com host after ~16s if BX is missing.
     let checks = 0;
-    setInterval(() => {
-        if (window.BX_EXPOSED) { sendDiag('BX OK'); return; }
+    const interval = setInterval(() => {
+        if (window.BX_EXPOSED) {
+            sendDiag('BX OK');
+            clearInterval(interval);
+            return;
+        }
         checks++;
-        if (checks < 5) return;
-        const onPlay = location.hostname.includes('xbox.com') && location.pathname.includes('/play');
-        if (!onPlay) return;
-        const last = parseInt(sessionStorage.getItem('__hcg_reload_ts') || '0', 10);
-        if (Date.now() - last < 60000) return;
+        if (checks > 30) { sendDiag('BX missing'); clearInterval(interval); return; }
+        if (checks < 8) return;
+        if (!location.hostname.includes('xbox.com')) { clearInterval(interval); return; }
+        const lastReload = parseInt(sessionStorage.getItem('__hcg_reload_ts') || '0', 10);
+        if (Date.now() - lastReload < 30000) return;
         sessionStorage.setItem('__hcg_reload_ts', String(Date.now()));
+        clearInterval(interval);
         location.reload();
     }, 2000);
 })();

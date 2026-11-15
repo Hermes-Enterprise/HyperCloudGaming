@@ -2,62 +2,14 @@ import SwiftUI
 
 struct ContentView: View {
     @StateObject private var model = WebViewModel()
-    @State private var toolbarExpanded = false
+    @State private var showURLSheet = false
     @State private var showHome = false
     @State private var showSettings = false
-    @State private var urlField = ""
 
     var body: some View {
-        ZStack(alignment: .top) {
-            WebView(model: model).ignoresSafeArea()
-
-            // Drag handle + collapsible toolbar
-            VStack(spacing: 0) {
-                Capsule()
-                    .fill(Color.gray.opacity(0.6))
-                    .frame(width: 40, height: 4)
-                    .padding(.vertical, 6)
-                    .onTapGesture { withAnimation { toolbarExpanded.toggle() } }
-                    .gesture(
-                        DragGesture(minimumDistance: 10)
-                            .onEnded { value in
-                                if value.translation.height > 20 { withAnimation { toolbarExpanded = true } }
-                                if value.translation.height < -20 { withAnimation { toolbarExpanded = false } }
-                            }
-                    )
-
-                if toolbarExpanded {
-                    VStack(spacing: 8) {
-                        // URL row
-                        HStack {
-                            TextField("URL", text: $urlField, onCommit: {
-                                model.load(urlString: urlField)
-                            })
-                            .textFieldStyle(.roundedBorder)
-                            .autocapitalization(.none)
-                            .disableAutocorrection(true)
-
-                            Button { model.reload() } label: { Image(systemName: "arrow.clockwise") }
-                        }
-
-                        // Navigation row
-                        HStack(spacing: 20) {
-                            Button { model.goBack() } label: { Image(systemName: "chevron.backward") }
-                                .disabled(!model.canGoBack)
-                            Button { model.goForward() } label: { Image(systemName: "chevron.forward") }
-                                .disabled(!model.canGoForward)
-                            Button { showHome = true } label: { Image(systemName: "house") }
-                            Spacer()
-                            Button { showSettings = true } label: { Image(systemName: "gearshape") }
-                        }
-                    }
-                    .padding(.horizontal)
-                    .padding(.bottom, 8)
-                    .background(.ultraThinMaterial)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-                }
-
-                // Diagnostic pill (always visible under the handle)
+        WebView(model: model)
+            .ignoresSafeArea()
+            .overlay(alignment: .top) {
                 Text(model.diagnosticMessage)
                     .font(.caption2.monospaced())
                     .foregroundColor(.white)
@@ -65,14 +17,117 @@ struct ContentView: View {
                     .padding(.vertical, 3)
                     .background(Color.black.opacity(0.7))
                     .cornerRadius(8)
-                    .padding(.top, 4)
+                    .padding(.top, 8)
                     .allowsHitTesting(false)
             }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                BrowserBar(
+                    model: model,
+                    showURLSheet: $showURLSheet,
+                    showHome: $showHome,
+                    showSettings: $showSettings
+                )
+            }
+            .sheet(isPresented: $showURLSheet) {
+                URLSheet(model: model)
+                    .presentationDetents([.height(240)])
+            }
+            .sheet(isPresented: $showHome) {
+                HomeView(model: model)
+            }
+            .sheet(isPresented: $showSettings) {
+                SettingsView()
+            }
+    }
+}
+
+private struct BrowserBar: View {
+    @ObservedObject var model: WebViewModel
+    @Binding var showURLSheet: Bool
+    @Binding var showHome: Bool
+    @Binding var showSettings: Bool
+
+    var body: some View {
+        HStack(spacing: 0) {
+            BarButton(icon: "chevron.backward", enabled: model.canGoBack) { model.goBack() }
+            BarButton(icon: "chevron.forward", enabled: model.canGoForward) { model.goForward() }
+            BarButton(icon: "arrow.clockwise") { model.reload() }
+            BarButton(icon: "house") { showHome = true }
+            BarButton(icon: "ellipsis") { showURLSheet = true }
+            BarButton(icon: "gearshape") { showSettings = true }
         }
-        .onAppear { urlField = model.currentURL }
-        .onChange(of: model.currentURL) { urlField = $0 }
-        .sheet(isPresented: $showHome) { HomeView(model: model) }
-        .sheet(isPresented: $showSettings) { SettingsView() }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 4)
+        .background(.ultraThinMaterial)
+        .overlay(
+            Rectangle()
+                .frame(height: 0.5)
+                .foregroundColor(.white.opacity(0.15)),
+            alignment: .top
+        )
+    }
+}
+
+private struct BarButton: View {
+    let icon: String
+    var enabled: Bool = true
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 17, weight: .regular))
+                .foregroundColor(.white)
+                .frame(maxWidth: .infinity, minHeight: 34)
+                .contentShape(Rectangle())
+        }
+        .disabled(!enabled)
+        .opacity(enabled ? 1.0 : 0.35)
+    }
+}
+
+private struct URLSheet: View {
+    @ObservedObject var model: WebViewModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var urlField = ""
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    HStack {
+                        TextField("URL", text: $urlField)
+                            .autocapitalization(.none)
+                            .disableAutocorrection(true)
+                            .keyboardType(.URL)
+                        Button("Go") {
+                            model.load(urlString: urlField)
+                            dismiss()
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                }
+
+                Section {
+                    Button("Reload") {
+                        model.reload()
+                        dismiss()
+                    }
+                    Button("Reset app data & reload", role: .destructive) {
+                        model.hardReset()
+                        dismiss()
+                    }
+                }
+            }
+            .navigationTitle("Browser")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+            .onAppear { urlField = model.currentURL }
+        }
     }
 }
 
@@ -95,7 +150,11 @@ struct HomeView: View {
                 }
             }
             .navigationTitle("Home")
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") { dismiss() }
+                }
+            }
         }
     }
 }
@@ -103,7 +162,8 @@ struct HomeView: View {
 struct SettingsView: View {
     var body: some View {
         NavigationStack {
-            Text("Settings coming soon").navigationTitle("Settings")
+            Text("Settings coming soon")
+                .navigationTitle("Settings")
         }
     }
 }

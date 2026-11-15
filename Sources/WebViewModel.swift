@@ -16,11 +16,13 @@ final class WebViewModel: NSObject, ObservableObject {
         config.mediaTypesRequiringUserActionForPlayback = []
         config.websiteDataStore = .default() // persistent cookies
 
-        // Inject scripts in order — no WKAppBoundDomains, so this will actually run.
+        // Inject scripts in order.
         for (name, ext) in [("gm-shim", "js"), ("better-xcloud.user", "js"), ("pointer-shim", "js")] {
             if let url = Bundle.main.url(forResource: name, withExtension: ext),
                let source = try? String(contentsOf: url) {
-                let script = WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: false)
+                let script = WKUserScript(source: source,
+                                          injectionTime: .atDocumentStart,
+                                          forMainFrameOnly: false)
                 config.userContentController.addUserScript(script)
             }
         }
@@ -40,16 +42,26 @@ final class WebViewModel: NSObject, ObservableObject {
         webView.scrollView.contentInsetAdjustmentBehavior = .never
         webView.navigationDelegate = self
 
-        // Load only once; do NOT clear cache here.
         webView.load(URLRequest(url: URL(string: "https://www.xbox.com/play")!))
     }
 
-    func goBack() { webView.goBack() }
+    func goBack()    { webView.goBack() }
     func goForward() { webView.goForward() }
-    func reload() { webView.reload() }
+    func reload()    { webView.reload() }
+
     func load(urlString: String) {
         guard let url = URL(string: urlString) else { return }
         webView.load(URLRequest(url: url))
+    }
+
+    func hardReset() {
+        let store = WKWebsiteDataStore.default()
+        store.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(),
+                         modifiedSince: Date(timeIntervalSince1970: 0)) { [weak self] in
+            DispatchQueue.main.async {
+                self?.load(urlString: "https://www.xbox.com/play")
+            }
+        }
     }
 }
 
@@ -70,7 +82,6 @@ extension WebViewModel: WKNavigationDelegate {
         isLoading = false
     }
 
-    // Handle target="_blank"
     func webView(_ webView: WKWebView,
                  createWebViewWith configuration: WKWebViewConfiguration,
                  for navigationAction: WKNavigationAction,
@@ -82,7 +93,6 @@ extension WebViewModel: WKNavigationDelegate {
     }
 }
 
-// Small proxy so the view model can conform to WKScriptMessageHandler without retain cycles.
 private final class ScriptMessageProxy: NSObject, WKScriptMessageHandler {
     weak var owner: WebViewModel?
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
@@ -92,6 +102,5 @@ private final class ScriptMessageProxy: NSObject, WKScriptMessageHandler {
                 self.owner?.diagnosticMessage = diag
             }
         }
-        // pointer-lock / keyboard messages can be forwarded to your bridge later.
     }
 }
