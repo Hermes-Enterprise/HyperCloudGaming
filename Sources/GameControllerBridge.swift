@@ -3,6 +3,8 @@ import GameController
 import WebKit
 
 class GameControllerBridge: NSObject, ObservableObject, WKScriptMessageHandler {
+    @Published var diagnosticStatus: String = "Waiting for injection..."
+
     private var mouse: GCMouse?
     private var keyboard: GCKeyboard?
     private var pointerLocked = false
@@ -19,7 +21,6 @@ class GameControllerBridge: NSObject, ObservableObject, WKScriptMessageHandler {
     @objc private func mouseConnected(_ note: Notification) {
         if let mouse = note.object as? GCMouse { setupMouse(mouse) }
     }
-
     @objc private func keyboardConnected(_ note: Notification) {
         if let keyboard = note.object as? GCKeyboard { setupKeyboard(keyboard) }
     }
@@ -49,8 +50,14 @@ class GameControllerBridge: NSObject, ObservableObject, WKScriptMessageHandler {
     }
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-        if message.name == "pointerLock", let body = message.body as? [String: Any] {
-            if let locked = body["locked"] as? Bool { pointerLocked = locked }
+        guard message.name == "pointerLock", let body = message.body as? [String: Any] else { return }
+        if let diag = body["diagnostic"] as? String {
+            DispatchQueue.main.async { self.diagnosticStatus = diag }
+            print("[HCG] \(diag)")
+            return
+        }
+        if let locked = body["locked"] as? Bool {
+            pointerLocked = locked
         }
     }
 }
